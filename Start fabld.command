@@ -1,6 +1,7 @@
 #!/bin/bash
 # Double-click this file to start fabld. A browser window opens automatically.
 # retro??
+# retro now
 cd "$(dirname "$0")"
 echo ""
 echo "  Starting fabld ..."
