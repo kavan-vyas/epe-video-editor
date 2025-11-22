@@ -111,7 +111,7 @@ Project layout: A directory with main.py; a recordings folder containing maths.m
 - Check durations: Ensure your end time is after your start time
 - Keep files as MP4: The script expects .mp4 files for intros, outos, and recordings
 - Backups: Keep originals in case you want to re-export with different trims
-
+w
 ## Troubleshooting
 - No recordings found!
   - Ensure recordings/ exists and contains .mp4 files
