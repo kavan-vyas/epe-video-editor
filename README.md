@@ -130,3 +130,40 @@ Personal/organizational use permitted. Add a LICENSE file if you need specific t
 ## Acknowledgments
 - Built with Python and MoviePy
 - Inspired by the need to reduce manual editing time by ~70+ minutes per video 🚀
+
+
+
+
+--- 
+
+
+
+
+
+
+# Notes taken:
+
+## Iter 1:
+
+MoviePy fix, the library works but it takes 7 mins on my macbook pro and takes more thamn 15 misn on my main deskstop computer, which I use for editing
+
+Therefore I need to optimise this
+
+## Iter 2:
+
+Multithreading update/ try
+
+Didnt really work kept on crashing
+
+My hypothesis was that this uses 100% of the Deskstop's power 
+and should speed things up.
+
+## Iter 3:
+
+I had fun and added tdqm actual rainbow loading bar
+
+I eventually realised this was highly inefficient do I got rid of it:
+
+## Iter 4:
+
+ TBC... (To Be Continued)
