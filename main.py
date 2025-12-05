@@ -1,6 +1,16 @@
 import os
+import sys
+import subprocess
 import uuid
-from moviepy import VideoFileClip, concatenate_videoclips
+
+# Try to import imageio_ffmpeg to get the binary path
+try:
+    import imageio_ffmpeg
+    FFMPEG_BINARY = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    print("Error: 'imageio-ffmpeg' library not found. Please install it via pip:")
+    print("pip install imageio-ffmpeg")
+    sys.exit(1)
 
 def list_recordings():
     """List all available recordings"""
@@ -38,7 +48,7 @@ def parse_time(time_str):
 
 def main():
     print("=" * 50)
-    print("Video Editing Automation (Optimized)")
+    print("Video Editing Automation (Native FFmpeg Speed Logic)")
     print("=" * 50)
     
     # Create output directory if it doesn't exist
@@ -48,7 +58,7 @@ def main():
     # Step 1: List and select recording
     recordings = list_recordings()
     if not recordings:
-        print("No recordings found!")
+        print("No recordings found in 'recordings' folder!")
         return
     
     print("\nAvailable recordings:")
@@ -93,7 +103,7 @@ def main():
     intros = list_intros()
     intro_path = None
     if not intros:
-        print("\nWarning: No intro videos found!")
+        print("\nWarning: No intro videos found in 'introandoutro' folder!")
     else:
         print("\n" + "-" * 50)
         print("Available intro videos:")
@@ -120,100 +130,110 @@ def main():
         print(f"\nWarning: '{outro_path}' not found!")
         outro_path = None
     
-    # Step 4: Process video
+    # Ask for output filename
+    while True:
+        user_filename = input("\nEnter output filename (default: final.mp4): ").strip()
+        if not user_filename:
+            user_filename = "final.mp4"
+        # Ensure .mp4 extension
+        if not user_filename.lower().endswith('.mp4'):
+            user_filename += ".mp4"
+        # Prevent path traversal by taking only the basename
+        user_filename = os.path.basename(user_filename)
+        if user_filename:
+            break
+        print("Invalid filename, try again.")
+        
+    output_path = os.path.join(output_dir, user_filename)
+    
+    # Step 4: Construct FFmpeg Command
     print("\n" + "=" * 50)
-    print("Processing video... (Optimized Mode)")
+    print("Processing video with Native FFmpeg Engine...")
     print("=" * 50)
     
-    # Initialize clips to None for safe cleanup
-    main_clip = None
-    intro_clip = None
-    outro_clip = None
-    final_clip = None
+    # Inputs list for the command
+    inputs = []
+    filter_parts = []
+    input_idx = 0
+    
+    # 1. Intro (optional)
+    if intro_path:
+        inputs.extend(['-i', intro_path])
+        filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
+        input_idx += 1
+        
+    # 2. Main Recording (with trimming)
+    # We use -ss (seek) BEFORE -i for fast seeking, and -to for duration
+    # Note: When using -ss before -i, -to implies duration relative to 0 of the *trimmed* clip usually,
+    # but strictly it's safer to use -ss and -t (duration) or just handle the calculation.
+    # Actually, simpler is: -ss start -to end -i file -> NO, that's not how ffmpeg works perfectly with fast seek.
+    # Robust way: -ss start -i file -to (end-start) -copyts ...
+    # Let's stick to standard accurate seek: -ss start -to end -i ... is slow?
+    # FAST SEEK: -ss start -i file ...
+    # But then timestamps reset.
+    # BEST APPROACH: -ss start -t duration -i file
+    
+    duration = end_time - start_time
+    
+    # Note: we need to cast times to strings
+    inputs.extend(['-ss', str(start_time), '-t', str(duration), '-i', recording_path])
+    filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
+    input_idx += 1
+    
+    # 3. Outro (optional)
+    if outro_path:
+        inputs.extend(['-i', outro_path])
+        filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
+        input_idx += 1
+        
+    # Construct Filter Complex for Concat
+    # Format: [0:v] [0:a] [1:v] [1:a] ... concat=n=N:v=1:a=1 [v] [a]
+    filter_str = "".join(filter_parts) + f"concat=n={input_idx}:v=1:a=1 [v] [a]"
+    
+    cmd = [
+        FFMPEG_BINARY,
+        '-y', # Overwrite output
+    ]
+    
+    # Add all inputs
+    cmd.extend(inputs)
+    
+    # Add filter complex
+    cmd.extend(['-filter_complex', filter_str])
+    
+    # Add map to map the filter outputs to the final file
+    cmd.extend(['-map', '[v]', '-map', '[a]'])
+    
+    # Encoding options for Speed
+    cmd.extend([
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast', # Max speed
+        '-crf', '23', # Standard quality
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        output_path
+    ])
+    
+    display_cmd = " ".join(cmd)
+    # print(f"\nDebug: Executing command:\n{display_cmd}\n")
+    
+    print("Running FFmpeg subprocess... Please wait.")
     
     try:
-        # Load and trim main recording
-        print("\n1. Loading and trimming main recording...")
-        main_clip = VideoFileClip(recording_path).subclipped(start_time, end_time)
-        
-        clips_to_concat = []
-        
-        # Add intro
-        if intro_path:
-            print("2. Adding intro...")
-            intro_clip = VideoFileClip(intro_path)
-            clips_to_concat.append(intro_clip)
-        
-        # Add main content
-        clips_to_concat.append(main_clip)
-        
-        # Add outro
-        if outro_path:
-            print("3. Adding outro...")
-            outro_clip = VideoFileClip(outro_path)
-            clips_to_concat.append(outro_clip)
-        
-        # Concatenate all clips
-        print("4. Combining all clips...")
-        final_clip = concatenate_videoclips(clips_to_concat)
-        
-        # Ask for output filename
-        while True:
-            user_filename = input("Enter output filename (default: final.mp4): ").strip()
-            if not user_filename:
-                user_filename = "final.mp4"
-            # Ensure .mp4 extension
-            if not user_filename.lower().endswith('.mp4'):
-                user_filename += ".mp4"
-            # Prevent path traversal by taking only the basename
-            user_filename = os.path.basename(user_filename)
-            if user_filename:
-                break
-            print("Invalid filename, try again.")
-        
-        # Export
-        output_path = os.path.join(output_dir, user_filename)
-        print(f"5. Exporting to {output_path}...")
-        
-        # Use a unique temp audio file to prevent conflicts
-        temp_audio = f"temp-audio-{uuid.uuid4()}.m4a"
-        
-        final_clip.write_videofile(
-            output_path,
-            codec='libx264',
-            audio_codec='aac',
-            temp_audiofile=temp_audio,
-            remove_temp=True,
-            preset='ultrafast',  # Much faster encoding
-            threads=8  # Use multiple threads
-        )
+        # Run subprocess
+        subprocess.run(cmd, check=True)
         
         print("\n" + "=" * 50)
         print(f"SUCCESS! Video saved to: {output_path}")
         print("=" * 50)
         
+    except subprocess.CalledProcessError as e:
+        print(f"\nError: FFmpeg command failed with exit code {e.returncode}")
+        print("Ensure input files have compatible streams (resolution/frame rate).")
+    except KeyboardInterrupt:
+        print("\nProcess cancelled by user.")
     except Exception as e:
-        print(f"\nError processing video: {e}")
-        print("Make sure all video files exist and are valid MP4 files.")
-        
-    finally:
-        # robust cleanup
-        print("\nCleaning up resources...")
-        try:
-            if main_clip: main_clip.close()
-        except: pass
-        
-        try:
-            if intro_clip: intro_clip.close()
-        except: pass
-            
-        try:
-            if outro_clip: outro_clip.close()
-        except: pass
-            
-        try:
-            if final_clip: final_clip.close()
-        except: pass
+        print(f"\nAn unexpected error occurred: {e}")
 
 if __name__ == "__main__":
     main()
