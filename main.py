@@ -1,7 +1,6 @@
 import os
-import time
+import uuid
 from moviepy import VideoFileClip, concatenate_videoclips
-from tqdm import tqdm
 
 def list_recordings():
     """List all available recordings"""
@@ -38,25 +37,23 @@ def parse_time(time_str):
         return None
 
 def main():
-    start_total = time.time()
-    
     print("=" * 50)
-    print("⚡ Optimized Video Editing Automation ⚡")
+    print("Video Editing Automation (Optimized)")
     print("=" * 50)
     
-    # Create output directory
+    # Create output directory if it doesn't exist
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Step 1: Select recording
+    # Step 1: List and select recording
     recordings = list_recordings()
     if not recordings:
         print("No recordings found!")
         return
     
-    print("\n📁 Available recordings:")
+    print("\nAvailable recordings:")
     for i, video in enumerate(recordings, 1):
-        print(f"  {i}. {video}")
+        print(f"{i}. {video}")
     
     while True:
         choice = input("\nEnter the number of the recording you want to edit: ")
@@ -71,11 +68,11 @@ def main():
             print("Please enter a valid number.")
     
     recording_path = os.path.join("recordings", selected_recording)
-    print(f"\n✅ Selected: {selected_recording}")
+    print(f"\nSelected: {selected_recording}")
     
     # Step 2: Get trim times
     print("\n" + "-" * 50)
-    print("⏱️  Enter trim times (format: MM:SS)")
+    print("Enter trim times (format: MM:SS)")
     print("-" * 50)
     
     while True:
@@ -95,12 +92,14 @@ def main():
     # Step 3: Select intro
     intros = list_intros()
     intro_path = None
-    if intros:
+    if not intros:
+        print("\nWarning: No intro videos found!")
+    else:
         print("\n" + "-" * 50)
-        print("🎬 Available intro videos:")
+        print("Available intro videos:")
         print("-" * 50)
         for i, intro in enumerate(intros, 1):
-            print(f"  {i}. {intro}")
+            print(f"{i}. {intro}")
         
         while True:
             choice = input("\nEnter the number of the intro to use: ")
@@ -118,125 +117,103 @@ def main():
     # Set outro path
     outro_path = os.path.join("introandoutro", "mainoutro.mp4")
     if not os.path.exists(outro_path):
+        print(f"\nWarning: '{outro_path}' not found!")
         outro_path = None
     
-    # Ask for output filename
-    while True:
-        user_filename = input("\n💾 Enter output filename (default: final.mp4): ").strip()
-        if not user_filename:
-            user_filename = "final.mp4"
-        if not user_filename.lower().endswith('.mp4'):
-            user_filename += ".mp4"
-        user_filename = os.path.basename(user_filename)
-        if user_filename:
-            break
-        print("Invalid filename, try again.")
-    
-    output_path = os.path.join(output_dir, user_filename)
-    
-    # Step 4: Process video with optimizations
+    # Step 4: Process video
     print("\n" + "=" * 50)
-    print("🚀 Processing video (Optimized)")
+    print("Processing video... (Optimized Mode)")
     print("=" * 50)
-    print("\n💡 Using optimized settings for faster processing\n")
+    
+    # Initialize clips to None for safe cleanup
+    main_clip = None
+    intro_clip = None
+    outro_clip = None
+    final_clip = None
     
     try:
+        # Load and trim main recording
+        print("\n1. Loading and trimming main recording...")
+        main_clip = VideoFileClip(recording_path).subclipped(start_time, end_time)
+        
         clips_to_concat = []
         
-        # Step 1: Load and trim main recording
-        print("📹 Step 1: Loading and trimming main recording...")
-        with tqdm(total=100, desc="Loading video", unit="%", 
-                  bar_format="{l_bar}{bar}| {n_fmt}%") as pbar:
-            main_clip = VideoFileClip(recording_path)
-            pbar.update(50)
-            main_clip = main_clip.subclipped(start_time, end_time)
-            pbar.update(50)
-        
-        # Step 2: Load intro if exists
+        # Add intro
         if intro_path:
-            print("\n🎬 Step 2: Loading intro...")
-            with tqdm(total=100, desc="Loading intro", unit="%",
-                      bar_format="{l_bar}{bar}| {n_fmt}%") as pbar:
-                intro_clip = VideoFileClip(intro_path)
-                clips_to_concat.append(intro_clip)
-                pbar.update(100)
+            print("2. Adding intro...")
+            intro_clip = VideoFileClip(intro_path)
+            clips_to_concat.append(intro_clip)
         
         # Add main content
         clips_to_concat.append(main_clip)
         
-        # Step 3: Load outro if exists
+        # Add outro
         if outro_path:
-            print("\n🎭 Step 3: Loading outro...")
-            with tqdm(total=100, desc="Loading outro", unit="%",
-                      bar_format="{l_bar}{bar}| {n_fmt}%") as pbar:
-                outro_clip = VideoFileClip(outro_path)
-                clips_to_concat.append(outro_clip)
-                pbar.update(100)
+            print("3. Adding outro...")
+            outro_clip = VideoFileClip(outro_path)
+            clips_to_concat.append(outro_clip)
         
-        # Step 4: Concatenate
-        print("\n🔗 Step 4: Combining clips...")
-        with tqdm(total=100, desc="Concatenating", unit="%",
-                  bar_format="{l_bar}{bar}| {n_fmt}%") as pbar:
-            final_clip = concatenate_videoclips(clips_to_concat)
-            pbar.update(100)
+        # Concatenate all clips
+        print("4. Combining all clips...")
+        final_clip = concatenate_videoclips(clips_to_concat)
         
-        # Step 5: Export with optimizations
-        print(f"\n💾 Step 5: Exporting to {output_path}...")
-        print("⏱️  This is the slowest step - please be patient!\n")
+        # Ask for output filename
+        while True:
+            user_filename = input("Enter output filename (default: final.mp4): ").strip()
+            if not user_filename:
+                user_filename = "final.mp4"
+            # Ensure .mp4 extension
+            if not user_filename.lower().endswith('.mp4'):
+                user_filename += ".mp4"
+            # Prevent path traversal by taking only the basename
+            user_filename = os.path.basename(user_filename)
+            if user_filename:
+                break
+            print("Invalid filename, try again.")
         
-        # OPTIMIZED SETTINGS for faster encoding:
+        # Export
+        output_path = os.path.join(output_dir, user_filename)
+        print(f"5. Exporting to {output_path}...")
+        
+        # Use a unique temp audio file to prevent conflicts
+        temp_audio = f"temp-audio-{uuid.uuid4()}.m4a"
+        
         final_clip.write_videofile(
             output_path,
             codec='libx264',
             audio_codec='aac',
-            temp_audiofile='temp-audio.m4a',
+            temp_audiofile=temp_audio,
             remove_temp=True,
-            # OPTIMIZATION 1: Faster preset (huge speed boost!)
-            preset='ultrafast',  # Was 'medium', now 'ultrafast' = 5-10x faster!
-            
-            # OPTIMIZATION 2: Multi-threading
-            threads=8,  # Use 8 CPU threads for parallel encoding
-            
-            # OPTIMIZATION 3: Reduce quality slightly for speed
-            # (still looks great, but encodes faster)
-            bitrate='3000k',  # Lower bitrate = faster encoding
-            
-            # OPTIMIZATION 4: Audio settings
-            audio_bitrate='192k',
-            audio_fps=44100,
-            
-            # Show progress bar
-            logger='bar'
+            preset='ultrafast',  # Much faster encoding
+            threads=8  # Use multiple threads
         )
         
-        # Step 6: Cleanup
-        print("\n🧹 Step 6: Cleaning up...")
-        with tqdm(total=len(clips_to_concat), desc="Closing clips", unit="clip") as pbar:
-            main_clip.close()
-            pbar.update(1)
-            if intro_path:
-                intro_clip.close()
-                pbar.update(1)
-            if outro_path:
-                outro_clip.close()
-                pbar.update(1)
-            final_clip.close()
-        
-        elapsed = time.time() - start_total
-        
         print("\n" + "=" * 50)
-        print(f"✅ SUCCESS! Video saved to: {output_path}")
-        print(f"⏱️  Total time: {elapsed:.1f} seconds ({elapsed/60:.1f} minutes)")
+        print(f"SUCCESS! Video saved to: {output_path}")
         print("=" * 50)
-        print("\n⚡ Optimized settings used:")
-        print("   • Ultra-fast encoding preset")
-        print("   • Multi-threaded processing (8 threads)")
-        print("   • Optimized bitrate settings")
-        print("   • ~3-5x faster than default settings!")
         
     except Exception as e:
-        print(f"\n❌ Error processing video: {e}")
+        print(f"\nError processing video: {e}")
         print("Make sure all video files exist and are valid MP4 files.")
+        
+    finally:
+        # robust cleanup
+        print("\nCleaning up resources...")
+        try:
+            if main_clip: main_clip.close()
+        except: pass
+        
+        try:
+            if intro_clip: intro_clip.close()
+        except: pass
+            
+        try:
+            if outro_clip: outro_clip.close()
+        except: pass
+            
+        try:
+            if final_clip: final_clip.close()
+        except: pass
 
 if __name__ == "__main__":
     main()
