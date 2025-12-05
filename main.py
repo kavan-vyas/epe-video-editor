@@ -48,7 +48,7 @@ def parse_time(time_str):
 
 def main():
     print("=" * 50)
-    print("Video Editing Automation (Native FFmpeg Speed Logic)")
+    print("Video Editing Automation (Lossless Instant Speed)")
     print("=" * 50)
     
     # Create output directory if it doesn't exist
@@ -77,12 +77,13 @@ def main():
         except ValueError:
             print("Please enter a valid number.")
     
-    recording_path = os.path.join("recordings", selected_recording)
+    recording_path = os.path.abspath(os.path.join("recordings", selected_recording))
     print(f"\nSelected: {selected_recording}")
     
     # Step 2: Get trim times
     print("\n" + "-" * 50)
     print("Enter trim times (format: MM:SS)")
+    print("NOTE: Cuts will snap to the nearest keyframe (approx. every 2-5s)")
     print("-" * 50)
     
     while True:
@@ -117,7 +118,7 @@ def main():
                 idx = int(choice) - 1
                 if 0 <= idx < len(intros):
                     selected_intro = intros[idx]
-                    intro_path = os.path.join("introandoutro", selected_intro)
+                    intro_path = os.path.abspath(os.path.join("introandoutro", selected_intro))
                     break
                 else:
                     print("Invalid selection. Please try again.")
@@ -125,10 +126,12 @@ def main():
                 print("Please enter a valid number.")
     
     # Set outro path
-    outro_path = os.path.join("introandoutro", "mainoutro.mp4")
-    if not os.path.exists(outro_path):
-        print(f"\nWarning: '{outro_path}' not found!")
+    outro_base = os.path.abspath(os.path.join("introandoutro", "mainoutro.mp4"))
+    if not os.path.exists(outro_base):
+        print(f"\nWarning: '{outro_base}' not found!")
         outro_path = None
+    else:
+        outro_path = outro_base
     
     # Ask for output filename
     while True:
@@ -146,94 +149,79 @@ def main():
         
     output_path = os.path.join(output_dir, user_filename)
     
-    # Step 4: Construct FFmpeg Command
+    # Processing Variables
+    temp_cut_file = f"temp_cut_{uuid.uuid4()}.mp4"
+    concat_list_file = f"concat_list_{uuid.uuid4()}.txt"
+    
     print("\n" + "=" * 50)
-    print("Processing video with Native FFmpeg Engine...")
+    print("Step 1: Trimming Main Video (Lossless)")
     print("=" * 50)
     
-    # Inputs list for the command
-    inputs = []
-    filter_parts = []
-    input_idx = 0
-    
-    # 1. Intro (optional)
-    if intro_path:
-        inputs.extend(['-i', intro_path])
-        filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
-        input_idx += 1
-        
-    # 2. Main Recording (with trimming)
-    # We use -ss (seek) BEFORE -i for fast seeking, and -to for duration
-    # Note: When using -ss before -i, -to implies duration relative to 0 of the *trimmed* clip usually,
-    # but strictly it's safer to use -ss and -t (duration) or just handle the calculation.
-    # Actually, simpler is: -ss start -to end -i file -> NO, that's not how ffmpeg works perfectly with fast seek.
-    # Robust way: -ss start -i file -to (end-start) -copyts ...
-    # Let's stick to standard accurate seek: -ss start -to end -i ... is slow?
-    # FAST SEEK: -ss start -i file ...
-    # But then timestamps reset.
-    # BEST APPROACH: -ss start -t duration -i file
-    
-    duration = end_time - start_time
-    
-    # Note: we need to cast times to strings
-    inputs.extend(['-ss', str(start_time), '-t', str(duration), '-i', recording_path])
-    filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
-    input_idx += 1
-    
-    # 3. Outro (optional)
-    if outro_path:
-        inputs.extend(['-i', outro_path])
-        filter_parts.append(f"[{input_idx}:v] [{input_idx}:a]")
-        input_idx += 1
-        
-    # Construct Filter Complex for Concat
-    # Format: [0:v] [0:a] [1:v] [1:a] ... concat=n=N:v=1:a=1 [v] [a]
-    filter_str = "".join(filter_parts) + f"concat=n={input_idx}:v=1:a=1 [v] [a]"
-    
-    cmd = [
-        FFMPEG_BINARY,
-        '-y', # Overwrite output
-    ]
-    
-    # Add all inputs
-    cmd.extend(inputs)
-    
-    # Add filter complex
-    cmd.extend(['-filter_complex', filter_str])
-    
-    # Add map to map the filter outputs to the final file
-    cmd.extend(['-map', '[v]', '-map', '[a]'])
-    
-    # Encoding options for Speed
-    cmd.extend([
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast', # Max speed
-        '-crf', '23', # Standard quality
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        output_path
-    ])
-    
-    display_cmd = " ".join(cmd)
-    # print(f"\nDebug: Executing command:\n{display_cmd}\n")
-    
-    print("Running FFmpeg subprocess... Please wait.")
-    
     try:
-        # Run subprocess
-        subprocess.run(cmd, check=True)
+        # 1. Trim the main video first using Stream Copy
+        # -ss before -i is crucial for fast seek
+        # -to is used to specify end time relative to input if -ss is before -i? 
+        # Actually with -ss before -i, timestamps reset to 0. So we need duration using -t
+        duration = end_time - start_time
+        
+        trim_cmd = [
+            FFMPEG_BINARY,
+            '-y',
+            '-ss', str(start_time),
+            '-t', str(duration),
+            '-i', recording_path,
+            '-c', 'copy',
+            temp_cut_file
+        ]
+        
+        print(f"Trimming '{selected_recording}'...", end=" ", flush=True)
+        subprocess.run(trim_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("Done!")
+        
+        # 2. Create Concat List
+        # We must use absolute paths for safety with the concat demuxer
+        print("Step 2: Merging (Lossless)...")
+        
+        temp_cut_abs = os.path.abspath(temp_cut_file)
+        
+        with open(concat_list_file, 'w', encoding='utf-8') as f:
+            if intro_path:
+                f.write(f"file '{intro_path}'\n")
+            f.write(f"file '{temp_cut_abs}'\n")
+            if outro_path:
+                f.write(f"file '{outro_path}'\n")
+        
+        # 3. Concatenate using Stream Copy
+        concat_cmd = [
+            FFMPEG_BINARY,
+            '-y',
+            '-f', 'concat',
+            '-safe', '0', # Allow unsafe file paths (absolute paths)
+            '-i', concat_list_file,
+            '-c', 'copy',
+            output_path
+        ]
+        
+        subprocess.run(concat_cmd, check=True)
         
         print("\n" + "=" * 50)
         print(f"SUCCESS! Video saved to: {output_path}")
         print("=" * 50)
-        
+
     except subprocess.CalledProcessError as e:
         print(f"\nError: FFmpeg command failed with exit code {e.returncode}")
-        print("Ensure input files have compatible streams (resolution/frame rate).")
-    except KeyboardInterrupt:
-        print("\nProcess cancelled by user.")
+        print("NOTE: For Lossless mode, all videos (Intro, Recording, Outro) MUST have identical resolution and codecs.")
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
+        
+    finally:
+        # Cleanup temp files
+        if os.path.exists(temp_cut_file):
+            try: os.remove(temp_cut_file)
+            except: pass
+        if os.path.exists(concat_list_file):
+            try: os.remove(concat_list_file)
+            except: pass
 
 if __name__ == "__main__":
     main()
