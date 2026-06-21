@@ -1,0 +1,10 @@
+# Pipeline output (regenerated each run)
+/output/*.mp4
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Temp work dirs (vcompiler uses the system temp dir, but just in case)
+vcompiler_*/
