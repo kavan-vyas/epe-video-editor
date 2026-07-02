@@ -1,132 +1,121 @@
-# Video Compiler in Python
+# Lossless Lesson Video Assembler
 
-I've created a Python script that will be significantly faster than manual editing in Camtasia. This README preserves the original details and adds a complete, step-by-step guide to set up and use the repository successfully.
+Trims a weekly lesson recording and wraps it with a subject intro and a shared
+outro — **without re-encoding the recording**. A ~1-hour lesson is assembled
+in **under 5 seconds**, because only container metadata is rewritten; the
+compressed video frames are copied as-is.
 
-## Speed Comparison
-- Camtasia: ~30 min conversion + ~60 min editing ≈ 90 minutes total
-- This Python script: ~5–15 minutes (depends on video length and your computer specs)
-- On my computer it ran quite well and it only took 7 minutes to run and output the file of length 1 hour.
+## Speed
 
-## What This Tool Does
-- Lets you pick a recording from the recordings folder
-- Prompts you for start and end trim times (MM:SS) (and the MM part can be > 60)
-- Lets you select an intro from introandoutro
-- Automatically appends the main outro
-- Asks you to name the output file (defaults to final.mp4)
-- Exports the result to the output folder
+| Method | Time for a 1-hour lesson |
+|---|---|
+| Camtasia (manual) | ~90 min |
+| Old MoviePy script (full re-encode) | ~7–15 min |
+| This pipeline (stream copy) | **~4 s** |
+
+## Why it's fast
+
+A video file is a container: an index pointing into a blob of compressed
+frames. Trimming and joining only need a new index — `ffmpeg -c copy` writes
+one without ever decoding the video. The single unavoidable constraint: a
+lossless cut can only *start* on a keyframe (Zoom records one every 2 s, so
+cuts land within 2 s of what you ask for; the end cut is exact).
+
+## Usage
+
+```bash
+# interactive: pick recording, intro, times, output name
+python3 main.py
+
+# direct
+python3 main.py long.mp4 maths 1:30 55:00
+python3 main.py long.mp4 english 2:00 61:30 -o english_week12.mp4
+
+# any path works, not just files inside recordings/
+python3 main.py ~/Downloads/lesson.mkv reasoning 90 3300
+```
+
+Times are `MM:SS` (minutes may exceed 60), `HH:MM:SS`, or plain seconds.
+The intro argument matches by substring (`maths` finds `mathsintro.mp4`) or
+can be a path. `mainoutro.mp4` is always appended. Output lands in `output/`
+(default `final.mp4`).
+
+## What it accepts
+
+Tested against all of these input shapes (see `tests.py`):
+
+- H.264, HEVC 8-bit and 10-bit video; any resolution, framerate, up to 4K60
+- MP4 / M4V / MOV / MKV containers; fragmented MP4 (auto-remuxed)
+- AAC, MP3, mono/stereo, any sample rate — or no audio at all
+- Rotated phone recordings (90/180/270° display rotation is preserved,
+  intros are rotated to match)
+- Multiple audio tracks (the first is kept), data/subtitle tracks (dropped)
+- Screen recordings with a single keyframe (cut falls back to the start,
+  with a warning about the extra footage)
+- Awkward filenames (spaces, apostrophes)
+
+Bad input (missing files, reversed times, times past the end) fails fast
+with a one-line error.
 
 ## Requirements
-- Python 3.9+ recommended
-- ffmpeg (MoviePy uses it under the hood; usually auto-installed with MoviePy on most platforms, but you may need to install it manually if export fails)
 
-## Installation
-1. Install Python if you don’t already have it (macOS often has Python 3 preinstalled).
-2. Install required Python packages:
-   - macOS/Linux:
-     - python3 -m pip install --upgrade pip
-     - python3 -m pip install moviepy
-   - Windows:
-     - py -m pip install --upgrade pip
-     - py -m pip install moviepy
+- Python 3.9+ (standard library only)
+- ffmpeg + ffprobe on PATH (`brew install ffmpeg`)
 
-If export fails with an ffmpeg error, install ffmpeg:
-- macOS (Homebrew): brew install ffmpeg
-- Windows (chocolatey): choco install ffmpeg
-- Linux (Debian/Ubuntu): sudo apt-get update && sudo apt-get install -y ffmpeg
+## Folder layout
 
-## Repository Structure
-Your directory should look like this:
-
-project_root/
+```
+epe/
 ├── main.py
-├── recordings/
-│   ├── maths.mp4
-│   ├── english.mp4
-│   └── reasoning.mp4
-├── introandoutro/
-│   ├── mathsintro.mp4
-│   ├── englishintro.mp4
-│   ├── reasoningintro.mp4
-│   └── mainoutro.mp4
-└── output/              # created automatically if missing
+├── tests.py          # end-to-end suite: python3 tests.py
+├── recordings/       # raw lesson recordings
+├── introandoutro/    # mathsintro / englishintro / reasoningintro / mainoutro
+│   └── .conformed/   # cache of intros re-encoded to match the recordings
+└── output/           # finished lessons
+```
 
-Notes:
-- recordings contains your raw lesson recordings (MP4 files)
-- introandoutro contains intro videos for each subject plus mainoutro.mp4
-- output is where the final rendered video is saved
+## The 5 stages
 
-## Step-by-Step Guide: How to Use This Repo
-1. Prepare your folders and files
-   - Ensure these folders exist next to main.py: recordings and introandoutro
-   - Place your raw recordings (e.g., maths.mp4, english.mp4, reasoning.mp4) into recordings/
-   - Place your intro videos (e.g., mathsintro.mp4, englishintro.mp4, reasoningintro.mp4) and the outro video mainoutro.mp4 into introandoutro/
-   - The script will create output/ automatically if it doesn’t exist
+1. **Inspect** — probe the recording's codec, resolution, audio layout,
+   rotation and video timescale; detect fragmented MP4 (remuxed via stream
+   copy if found).
+2. **Conform bookends** — the intro/outro must match the recording's
+   parameters before they can be joined losslessly. If they don't, they are
+   re-encoded once (~2 s for a 5 s clip; silent audio synthesized to match,
+   pixels pre-rotated for rotated recordings) and cached in
+   `introandoutro/.conformed/`, keyed on the recording's shape — every later
+   run with the same kind of recording is a cache hit. The recording itself
+   is never touched.
+3. **Trim** — stream-copy the `[start, end]` slice. Start snaps to the
+   nearest keyframe at or before the requested time. H.264/HEVC slices pass
+   through an MPEG-TS intermediate (still pure stream copy) so the body
+   carries its own codec parameter sets in-band — this is what makes joining
+   two differently-encoded files decode correctly everywhere.
+4. **Concat** — the ffmpeg concat demuxer joins intro + body + outro via
+   stream copy, with exact per-part splice points so seams are frame-clean;
+   display rotation is re-attached afterwards if the recording had any.
+5. **Verify** — the output must match the expected duration, its timestamps
+   must climb cleanly through both seams, and a few seconds around every
+   seam (plus head and tail) are actually decoded to prove the file plays.
+   On failure the run stops loudly and keeps its intermediate files for
+   debugging; on success they are deleted.
 
-2. Start the program
-     - On VS Code, click on Terminal on the top bar and create a new terminal
-     - Enter the exact command: "python main.py"
+## Testing
 
-3. Select the recording
-   - The program lists all .mp4 files in recordings/
-   - Enter the number corresponding to the video you want to edit
+```bash
+python3 tests.py            # full suite (~90 s): 17 input shapes + 5 rejection cases
+python3 tests.py hevc       # only tests matching a substring
+```
 
-4. Enter trim times
-   - Format: MM:SS (e.g., 02:30)
-   - Start time: where the content should begin
-   - End time: where the content should end (must be after the start time)
+Each test generates a synthetic recording, runs the real pipeline on it, and
+fully decodes the result to assert zero bitstream errors.
 
-5. Choose an intro
-   - The program lists all intro files (files containing “intro”) from introandoutro/
-   - Enter the number corresponding to the intro you want to prepend
+## Notes
 
-6. Name the output file
-   - You’ll be asked to enter an output filename
-   - Press Enter to accept the default final.mp4
-   - If you omit .mp4, it will be added automatically
-   - The file will be saved into output/
-
-7. Wait for processing to complete
-   - Rendering time depends on the length of the video and your hardware
-   - When done, the program prints the full path to your exported file
-
-## Features
-- Interactive menu to select recordings
-- Trim start and end of videos via MM:SS inputs
-- Automatically adds selected intro and the main outro
-- Prompts for output filename; defaults to final.mp4
-- Exports to output/<your-filename>.mp4
-- Error handling for missing folders/files
-
-## Original Problem Statement (Preserved)
-1 hour recording is recorded in Zoom every weekend; it takes around 30 mins for the recording to “convert”. Then it takes ~1 hour to edit the recording in Camtasia. Would a Python program for this same function be faster?
-
-Project layout: A directory with main.py; a recordings folder containing maths.mp4, english.mp4, reasoning.mp4; and an introandoutro folder containing mathsintro.mp4, englishintro.mp4, reasoningintro.mp4, and mainoutro.mp4. The program should:
-- Open the selected recording and ask for the filename to edit
-- Ask for start and end times (minutes and seconds) to trim
-- Ask which intro to prepend, automatically append the outro
-- Create final.mp4 (or your chosen filename) in the output folder
-
-## Tips and Best Practices
-- Use consistent naming: Keep subject names aligned between recordings and intros (e.g., maths.mp4 and mathsintro.mp4)
-- Check durations: Ensure your end time is after your start time
-- Keep files as MP4: The script expects .mp4 files for intros, outos, and recordings
-- Backups: Keep originals in case you want to re-export with different trims
-w
-## Troubleshooting
-- No recordings found!
-  - Ensure recordings/ exists and contains .mp4 files
-- No intro videos found!
-  - Ensure introandoutro/ exists and contains your intro files and mainoutro.mp4
-- Export fails / ffmpeg not found
-  - Install ffmpeg (see Installation section) and re-run the script
-- Audio issues
-  - Ensure your source files have valid audio tracks; the script exports with codec libx264 and audio aac
-- Permission errors
-  - Make sure you have write permissions to the output/ directory
-
-## License
-Personal/organizational use permitted. Add a LICENSE file if you need specific terms.
-
-## Acknowledgments
-- Built with Python and MoviePy
-- Inspired by the need to reduce manual editing time by ~70+ minutes per video 🚀
+- The start cut snapping to a keyframe means up to a few seconds of extra
+  footage may precede your requested start (2 s for Zoom recordings). Ask
+  for a slightly later start if that matters.
+- New recording shape (camera change, Zoom settings change)? Nothing to do —
+  the bookends are re-conformed once for the new shape, automatically.
+- Output has `+faststart` (index at the front), so it streams/uploads well.
+- The conform cache is safe to delete at any time; it rebuilds in seconds.
