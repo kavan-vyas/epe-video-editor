@@ -1,70 +1,80 @@
-# Lossless Lesson Video Assembler
+# fabld — the lesson video maker
 
-Trims a weekly lesson recording and wraps it with a subject intro and a shared
-outro — **without re-encoding the recording**. A ~1-hour lesson is assembled
-in **under 5 seconds**, because only container metadata is rewritten; the
-compressed video frames are copied as-is.
+fabld takes a long lesson recording, cuts out the part you want, and wraps it
+with your subject intro and the shared outro. A one-hour lesson is ready in
+about **5 seconds**, at full original quality.
 
-## Speed
+Everything happens in your web browser — no video editor needed.
 
-| Method | Time for a 1-hour lesson |
-|---|---|
-| Camtasia (manual) | ~90 min |
-| Old MoviePy script (full re-encode) | ~7–15 min |
-| This pipeline (stream copy) | **~4 s** |
+---
 
-## Why it's fast
+## How to start
 
-A video file is a container: an index pointing into a blob of compressed
-frames. Trimming and joining only need a new index — `ffmpeg -c copy` writes
-one without ever decoding the video. The single unavoidable constraint: a
-lossless cut can only *start* on a keyframe (Zoom records one every 2 s, so
-cuts land within 2 s of what you ask for; the end cut is exact).
+**On a Mac**
 
-## Usage
+1. Double-click **`Start fabld.command`** (in this folder).
+   *First time only:* if your Mac refuses to open it, right-click it →
+   **Open** → **Open**. You only do that once.
+2. Your browser opens with the fabld editor by itself.
 
-```bash
-# interactive: pick recording, intro, times, output name
-python3 main.py
+**On Windows**
 
-# direct
-python3 main.py long.mp4 maths 1:30 55:00
-python3 main.py long.mp4 english 2:00 61:30 -o english_week12.mp4
+1. Double-click **`Start fabld.bat`** (in this folder).
+2. Your browser opens with the fabld editor by itself.
 
-# any path works, not just files inside recordings/
-python3 main.py ~/Downloads/lesson.mkv reasoning 90 3300
-```
+Leave the small terminal window open in the background while you work.
+Close it (or press `Ctrl+C` in it) when you're done.
 
-Times are `MM:SS` (minutes may exceed 60), `HH:MM:SS`, or plain seconds.
-The intro argument matches by substring (`maths` finds `mathsintro.mp4`) or
-can be a path. `mainoutro.mp4` is always appended. Output lands in `output/`
-(default `final.mp4`).
+*If fabld says a helper program is missing, it prints the exact one-line
+install command to copy-paste — do that once and start fabld again.*
 
-## What it accepts
+## How to make a video
 
-Tested against all of these input shapes (see `tests.py`):
+The page walks you through 4 numbered steps:
 
-- H.264, HEVC 8-bit and 10-bit video; any resolution, framerate, up to 4K60
-- MP4 / M4V / MOV / MKV containers; fragmented MP4 (auto-remuxed)
-- AAC, MP3, mono/stereo, any sample rate — or no audio at all
-- Rotated phone recordings (90/180/270° display rotation is preserved,
-  intros are rotated to match)
-- Multiple audio tracks (the first is kept), data/subtitle tracks (dropped)
-- Screen recordings with a single keyframe (cut falls back to the start,
-  with a warning about the extra footage)
-- Awkward filenames (spaces, apostrophes)
+1. **Pick your recording** — click the video you want to trim.
+   (New recordings go into the `recordings` folder.)
+2. **Pick the intro** — maths, english, reasoning… To add a new subject, just
+   drop a clip whose name contains the word *intro* into the `introandoutro`
+   folder and it appears here. The outro is added automatically.
+3. **Choose start & end** — play the video, then drag the two green handles
+   on the picture strip around the part you want to keep. Use *Preview my
+   selection* to check it. (The orange line shows where the cut really
+   starts — always at, or a second or two before, your choice.)
+4. **Name it & press the big green button** — watch the 5 steps tick off, then
+   your video appears with a player, **Show in folder** and **Save a copy**.
 
-Bad input (missing files, reversed times, times past the end) fails fast
-with a one-line error.
+Finished videos live in the `output` folder and are listed at the bottom of
+the page under **My finished videos**.
 
-## Requirements
-
-- Python 3.9+ (standard library only)
-- ffmpeg + ffprobe on PATH (`brew install ffmpeg`)
-
-## Folder layout
+## Folders
 
 ```
 epe/
-├── main.py
+├── Start fabld.command   ← double-click this on a Mac
+├── Start fabld.bat       ← double-click this on Windows
+├── recordings/           ← put your lesson recordings here
+├── introandoutro/        ← intro clips + mainoutro.mp4
+├── output/               ← finished videos appear here
+├── server.py             ← the fabld app (web UI)
+├── web/                  ← the pages your browser shows
+└── main.py               ← the video engine (also works from the terminal)
+```
 
+## If something looks wrong
+
+- **Browser didn't open** — the terminal window prints an address like
+  `http://127.0.0.1:8765`. Type that into your browser.
+- **My new recording or intro isn't listed** — make sure it's in the right
+  folder, then press *Refresh* on the page (or just click back into the tab).
+- **The video starts a moment before where I put the handle** — normal, and
+  shown in orange: lossless cuts can only start on a keyframe (Zoom makes one
+  every 2 seconds). The end cut is always exact.
+- **Mac: "can't be opened because it is from an unidentified developer"** —
+  right-click `Start fabld.command` → Open → Open. One time only.
+
+---
+
+Curious how it works, or want to use it from the terminal?
+The problem it solves, the lossless pipeline, and the full command-line usage
+are all in **[info.md](info.md)**.

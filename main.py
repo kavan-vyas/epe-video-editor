@@ -621,7 +621,8 @@ FFPROBE = shutil.which("ffprobe")
 
 if __name__ == "__main__":
     if not FFMPEG or not FFPROBE:
-        fail("ffmpeg/ffprobe not found on PATH. Install with: brew install ffmpeg")
+        fail("ffmpeg/ffprobe not found on PATH. Install with: "
+             "brew install ffmpeg (macOS) or winget install ffmpeg (Windows)")
     try:
         main()
     except (KeyboardInterrupt, EOFError):

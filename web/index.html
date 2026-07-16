@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fabld — lesson video assembler</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23001e2b'/><path d='M30 68V32h26v9H41v8h13v9H41v10z' fill='%2300ed64'/></svg>">
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+
+<!-- top nav -->
+<nav class="topnav">
+  <div class="container nav-inner">
+    <div class="wordmark"><span class="wordmark-dot"></span>fabld</div>
+    <div class="nav-right">
+      <span class="nav-hint">lossless lesson-video assembler</span>
+      <button class="btn btn-secondary" id="nav-outputs-btn">My finished videos</button>
+    </div>
+  </div>
+</nav>
+
+<!-- hero -->
+<header class="hero">
+  <div class="container">
+    <div class="hero-eyebrow">Trim · add intro &amp; outro · done in seconds</div>
+    <h1 class="hero-title">Make this week's lesson video.</h1>
+    <p class="hero-sub">Pick a recording, drag the green handles around the part you want,
+    press the green button. Nothing is re-encoded, so a one-hour lesson is ready
+    in about five seconds at full quality.</p>
+  </div>
+</header>
+
+<main class="container main">
+
+  <!-- STEP 1: recording -->
+  <section class="step-card" id="step-recording">
+    <div class="step-head">
+      <span class="step-num" id="step1-num">1</span>
+      <div>
+        <h2 class="step-title">Pick your recording</h2>
+        <p class="step-desc">These are the videos inside your <strong>recordings</strong> folder.
+        Drop new files in there and press <em>Refresh</em>.</p>
+      </div>
+      <button class="btn btn-ghost" id="refresh-btn">↻ Refresh</button>
+    </div>
+    <div class="tile-grid" id="recording-grid"></div>
+    <div class="empty-note" id="recording-empty" hidden>
+      No videos found. Put your lesson recordings (.mp4, .mov, .mkv) into the
+      <strong>recordings</strong> folder next to fabld, then press Refresh.
+    </div>
+  </section>
+
+  <!-- STEP 2: intro -->
+  <section class="step-card" id="step-intro">
+    <div class="step-head">
+      <span class="step-num" id="step2-num">2</span>
+      <div>
+        <h2 class="step-title">Pick the intro</h2>
+        <p class="step-desc">Drop a new intro video into the <strong>introandoutro</strong> folder
+        (its name must contain the word <em>intro</em>) and it appears here on Refresh.
+        The shared outro is added automatically at the end.
+        <span class="badge badge-soft" id="outro-badge">outro added automatically</span></p>
+      </div>
+    </div>
+    <div class="tile-grid intros" id="intro-grid"></div>
+  </section>
+
+  <!-- STEP 3: trim editor -->
+  <section class="step-card" id="step-trim">
+    <div class="step-head">
+      <span class="step-num" id="step3-num">3</span>
+      <div>
+        <h2 class="step-title">Choose start &amp; end</h2>
+        <p class="step-desc">Play the video, then drag the two green handles — or press
+        <span class="kbd">I</span> to set the start and <span class="kbd">O</span> to set the end
+        at the playhead. <span class="kbd">Space</span> plays/pauses, arrow keys nudge.</p>
+      </div>
+    </div>
+
+    <div class="editor" id="editor" hidden>
+      <div class="player-wrap">
+        <video id="player" playsinline preload="metadata"></video>
+        <div class="player-overlay" id="player-overlay"><span class="play-glyph">▶</span></div>
+      </div>
+
+      <!-- transport -->
+      <div class="transport">
+        <button class="btn btn-secondary" id="back5">« 5s</button>
+        <button class="btn btn-primary" id="playpause">Play</button>
+        <button class="btn btn-secondary" id="fwd5">5s »</button>
+        <div class="clock"><span id="clock-now">00:00</span> <span class="clock-sep">/</span> <span id="clock-total">00:00</span></div>
+        <button class="btn btn-secondary preview-btn" id="preview-btn">▶ Preview my selection</button>
+      </div>
+
+      <!-- scrubber -->
+      <div class="scrubber-block">
+        <div class="scrubber" id="scrubber">
+          <div class="filmstrip" id="filmstrip"></div>
+          <div class="kf-layer" id="kf-layer"></div>
+          <div class="shade shade-left" id="shade-left"></div>
+          <div class="shade shade-right" id="shade-right"></div>
+          <div class="selection" id="selection"></div>
+          <div class="snap-marker" id="snap-marker" title="the cut will actually start here (nearest keyframe)"></div>
+          <div class="handle handle-start" id="handle-start"><span>⟨</span></div>
+          <div class="handle handle-end" id="handle-end"><span>⟩</span></div>
+          <div class="playhead" id="playhead"><div class="playhead-knob"></div></div>
+          <div class="strip-loading" id="strip-loading">building filmstrip…</div>
+        </div>
+        <div class="scrubber-legend">
+          <span class="legend-item"><span class="swatch swatch-sel"></span> your selection</span>
+          <span class="legend-item"><span class="swatch swatch-kf"></span> keyframes (lossless cut points)</span>
+          <span class="legend-item"><span class="swatch swatch-snap"></span> actual cut start</span>
+        </div>
+      </div>
+
+      <!-- time controls -->
+      <div class="time-row">
+        <div class="time-box">
+          <label class="time-label" for="start-input">Start</label>
+          <div class="time-controls">
+            <button class="nudge" data-t="start" data-d="-1">−1s</button>
+            <input class="time-input" id="start-input" value="00:00" spellcheck="false">
+            <button class="nudge" data-t="start" data-d="1">+1s</button>
+          </div>
+          <button class="btn btn-ghost set-btn" id="set-start">⇤ Set to playhead</button>
+        </div>
+        <div class="time-mid">
+          <div class="sel-len-label">selected</div>
+          <div class="sel-len" id="sel-len">00:00</div>
+          <div class="snap-note" id="snap-note"></div>
+        </div>
+        <div class="time-box">
+          <label class="time-label" for="end-input">End</label>
+          <div class="time-controls">
+            <button class="nudge" data-t="end" data-d="-1">−1s</button>
+            <input class="time-input" id="end-input" value="00:00" spellcheck="false">
+            <button class="nudge" data-t="end" data-d="1">+1s</button>
+          </div>
+          <button class="btn btn-ghost set-btn" id="set-end">Set to playhead ⇥</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty-note" id="editor-empty">Pick a recording above and it will load here.</div>
+  </section>
+
+  <!-- STEP 4: create -->
+  <section class="step-card create-card" id="step-create">
+    <div class="step-head">
+      <span class="step-num" id="step4-num">4</span>
+      <div>
+        <h2 class="step-title">Name it &amp; create</h2>
+        <p class="step-desc">Your finished video lands in the <strong>output</strong> folder.</p>
+      </div>
+    </div>
+    <div class="create-row">
+      <input class="text-input" id="output-name" placeholder="e.g. maths_week12" spellcheck="false">
+      <span class="ext-hint">.mp4</span>
+      <button class="btn btn-primary btn-big" id="create-btn" disabled>Create my video&nbsp; →</button>
+    </div>
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <!-- progress -->
+  <section class="progress-band" id="progress-band" hidden>
+    <h2 class="progress-title" id="progress-title">Building your video…</h2>
+    <div class="stage-list" id="stage-list"></div>
+    <div class="log-card"><pre id="log"></pre></div>
+    <div class="progress-actions" id="fail-actions" hidden>
+      <button class="btn btn-on-dark" id="fail-back">← Back to the editor</button>
+    </div>
+  </section>
+
+  <!-- done -->
+  <section class="done-band" id="done-band" hidden>
+    <div class="badge badge-bright">DONE</div>
+    <h2 class="done-title" id="done-title">Your video is ready</h2>
+    <p class="done-sub" id="done-sub"></p>
+    <video id="done-player" controls playsinline></video>
+    <div class="done-actions">
+      <button class="btn btn-on-dark" id="reveal-btn">Show in folder</button>
+      <a class="btn btn-secondary-dark" id="download-btn" download>Save a copy…</a>
+      <button class="btn btn-secondary-dark" id="again-btn">Make another video</button>
+    </div>
+  </section>
+
+  <!-- outputs -->
+  <section class="step-card" id="outputs-section">
+    <div class="step-head">
+      <span class="step-num alt">•</span>
+      <div>
+        <h2 class="step-title">My finished videos</h2>
+        <p class="step-desc">Everything in your <strong>output</strong> folder. Click one to watch it.</p>
+      </div>
+    </div>
+    <div class="output-list" id="output-list"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="wordmark on-dark"><span class="wordmark-dot"></span>fabld</div>
+    <p>A small homemade tool. Nothing is re-encoded — your video keeps its exact
+    original quality. Cuts start on the nearest keyframe, marked on the scrubber.
+    Prefer the terminal? <code>python3 main.py</code> still works exactly as before.</p>
+  </div>
+</footer>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
